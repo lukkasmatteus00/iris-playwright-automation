@@ -1,0 +1,235 @@
+# Iris Playwright Automation
+
+Automated test suite for the [Iris](https://iris.revelarautomation.com/) platform, covering REST API contracts and browser-based UI workflows with Playwright.
+
+The project was structured to keep tests readable, deterministic where possible, and easy to extend across API and E2E layers.
+
+## Stack
+
+| Tool | Purpose |
+| --- | --- |
+| Playwright Test | Test runner for API and browser automation |
+| TypeScript ESM | Static typing and modern module syntax |
+| Zod | Runtime validation for API response contracts |
+| dotenv | Local environment configuration |
+| ESLint | Static code quality checks |
+| Prettier | Consistent formatting |
+| GitHub Actions | CI execution and report publishing |
+
+## Project Structure
+
+```text
+tests/
+  api/
+    auth/
+      auth.api.spec.ts
+    session/
+      approve-session.api.spec.ts
+      create-session.api.spec.ts
+      reject-session.api.spec.ts
+      workflow-session.api.spec.ts
+  e2e/
+    reports/
+      reports.e2e.spec.ts
+    sessions/
+      workflow-session.e2e.spec.ts
+  support/
+    api/
+      auth/
+        auth.client.ts
+        auth.schemas.ts
+      session/
+        session.client.ts
+        session.schemas.ts
+    config/
+      env.ts
+    helpers/
+      session.helper.ts
+    ui/
+      common.steps.ts
+      pages/
+        login.page.ts
+        report.page.ts
+        session.page.ts
+        sidebar-menu.ts
+```
+
+## Environment Setup
+
+Create a `.env` file at the project root. The easiest path is copying the example file:
+
+```bash
+cp .env.example .env
+```
+
+Required values:
+
+```dotenv
+FRONTEND_BASE_URL=https://iris.revelarautomation.com/
+BACKEND_BASE_URL=https://iris.revelarautomation.com/api/
+X_CASE_TOKEN=<case token>
+
+TEST_SUBJECT_PASSWORD=<TEST_SUBJECT_PASSWORD>
+JUNIOR_COORDINATOR_PASSWORD=<JUNIOR_COORDINATOR_PASSWORD>
+SENIOR_COORDINATOR_PASSWORD=<SENIOR_COORDINATOR_PASSWORD>
+
+TEST_SUBJECT_ROLE= <JUNIOR_COORDINATOR_ROLE>
+JUNIOR_COORDINATOR_ROLE= <JUNIOR_COORDINATOR_ROLE>
+SENIOR_COORDINATOR_ROLE= <JUNIOR_COORDINATOR_ROLE>
+```
+
+Environment variables are parsed and validated in `tests/support/config/env.ts`. Password values are trimmed automatically, so accidental surrounding spaces in `.env` do not break authentication.
+
+Sensitive values such as `X_CASE_TOKEN` are sanitized when API helper errors are rethrown, reducing the chance of leaking secrets in failure output.
+
+## Installation
+
+```bash
+npm install
+npx playwright install chromium
+```
+
+Use `npx playwright install --with-deps chromium` on Linux or CI runners that need browser system dependencies.
+
+## Running Tests
+
+```bash
+# Run every Playwright project
+npm test
+
+# Run API tests only
+npm run test:api
+
+# Run browser E2E tests only
+npm run test:e2e
+
+# Run a single spec file
+npx playwright test tests/api/session/create-session.api.spec.ts
+
+# Run headed browser mode
+npm run test:headed
+
+# Debug interactively
+npm run test:debug
+
+# Open the latest HTML report
+npm run report
+```
+
+## Quality Commands
+
+```bash
+npm run typecheck
+npm run lint
+npm run format
+```
+
+## Playwright Projects
+
+`playwright.config.ts` defines two execution projects:
+
+| Project | Scope | Base URL |
+| --- | --- | --- |
+| `api` | `*.api.spec.ts` | `BACKEND_BASE_URL` |
+| `chromium` | `*.e2e.spec.ts` | `FRONTEND_BASE_URL` |
+
+API traces are disabled for speed. Browser tests keep screenshots and videos on failure so the HTML report remains useful for triage.
+
+## API Automation Strategy
+
+API tests follow a clear domain layering model:
+
+1. Client functions perform HTTP requests and return Playwright `APIResponse`.
+2. Zod schemas validate response contracts.
+3. Specs assert status codes, business states, error messages, and schema shape.
+4. Session helpers build reusable test state with dynamic future dates.
+
+The session helper avoids stale hard-coded dates and centralizes common setup such as role authentication, subject lookup, chamber lookup, apparatus lookup, and pending session creation.
+
+Role session cookies are cached per role/password combination in `auth.client.ts` to reduce repeated logins during a test run.
+
+## UI Automation Strategy
+
+UI tests use Page Objects under `tests/support/ui/pages` and shared login steps under `tests/support/ui/common.steps.ts`.
+
+The E2E tests intentionally combine UI interactions with API response assertions:
+
+- The reports flow validates the Reports page, downloads the CSV, attaches it to the report, and verifies the file has content.
+- The session workflow drives the wizard through the browser and waits for the specific session creation API response.
+
+Selectors prefer accessible roles and user-facing names. Where the app exposes only generic controls, the Page Object keeps that selector complexity out of the spec.
+
+## Reports and Artifacts
+
+Playwright generates an HTML report in:
+
+```text
+playwright-report/
+```
+
+Useful artifacts include:
+
+- Screenshots on browser failures
+- Videos on browser failures
+- CSV attachment for report export validation
+- Error context files generated by Playwright
+
+Open the report with:
+
+```bash
+npm run report
+```
+
+## Current Known Failures
+
+The suite currently exposes known product/API issues. These failures are intentionally left visible in the report instead of being hidden or skipped.
+
+| Test | Current behavior | Expected behavior |
+| --- | --- | --- |
+| `Session Workflow E2E > should create a new session` | UI sends session creation without `id`, API returns `422` | API should return `201` for a valid wizard submission |
+
+Expected full-suite result at the time of this README update:
+
+```text
+17 passed
+1 failed
+```
+
+## CI Pipeline
+
+The GitHub Actions workflow lives at `.github/workflows/pipeline.yml`.
+
+It runs:
+
+1. API tests on push and pull request to `main`.
+2. E2E tests after API tests.
+3. Playwright report artifact upload.
+4. E2E report publishing to GitHub Pages.
+
+Required repository secrets:
+
+```text
+FRONTEND_BASE_URL
+BACKEND_BASE_URL
+X_CASE_TOKEN
+TEST_SUBJECT_PASSWORD
+JUNIOR_COORDINATOR_PASSWORD
+SENIOR_COORDINATOR_PASSWORD
+TEST_SUBJECT_ROLE
+JUNIOR_COORDINATOR_ROLE
+SENIOR_COORDINATOR_ROLE
+```
+
+## Troubleshooting
+
+If Chromium is missing:
+
+```bash
+npx playwright install chromium
+```
+
+If browser tests fail to launch in a restricted local sandbox, run them in a normal terminal session.
+
+If environment validation fails, check `.env` first. The suite validates required variables before executing tests so configuration issues fail fast.
+
+If a test fails with an API status mismatch, open the HTML report and inspect the Playwright error context, screenshot, video, and attached artifacts before changing assertions.
